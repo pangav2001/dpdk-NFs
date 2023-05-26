@@ -29,6 +29,7 @@ static int thread_main(void *arg)
 	return 0;
 }
 
+
 int main(int argc, char **argv)
 {
 	int count, lcore_id, ret = 0;

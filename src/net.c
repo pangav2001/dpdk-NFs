@@ -1,6 +1,7 @@
 #include <rte_ether.h>
 #include <rte_ethdev.h>
 #include <rte_arp.h>
+#include <rte_ip.h>
 
 #include <base.h>
 
@@ -70,7 +71,7 @@ OUT:
 	return;
 }
 
-void eth_in(struct rte_mbuf *pkt_buf)
+void eth_in(struct rte_mbuf *pkt_buf, struct rte_lpm **lpm4, struct rte_lpm6 **lpm6)
 {
 	unsigned char *payload = rte_pktmbuf_mtod(pkt_buf, unsigned char *);
 	struct rte_ether_hdr *hdr = (struct rte_ether_hdr *)payload;
@@ -78,8 +79,43 @@ void eth_in(struct rte_mbuf *pkt_buf)
 	if (hdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
 		arp_in(pkt_buf);
 	} else {
-		//printf("Unknown ether type: %" PRIu16 "\n",
-		//	   rte_be_to_cpu_16(hdr->ether_type));
+		printf("Unknown ether type: %" PRIu16 ". Calling standard_acl function.\n",
+			   rte_be_to_cpu_16(hdr->ether_type));
+		standard_acl(pkt_buf, lpm4, lpm6);
 		rte_pktmbuf_free(pkt_buf);
+	}
+}
+
+void standard_acl(struct rte_mbuf *pkt_buf, struct rte_lpm **lpm4, struct rte_lpm6 **lpm6) {
+	unsigned char *payload = rte_pktmbuf_mtod(pkt_buf, unsigned char *);
+	struct rte_ether_hdr *eth = (struct rte_ether_hdr *)payload;
+	if (eth->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4) 
+		|| eth->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV6))
+	{
+		uint32_t permitted_src;
+		int32_t lookup;
+		if (eth->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4))
+		{
+			struct rte_ipv4_hdr *iph = payload + sizeof(struct rte_ether_hdr);
+			uint32_t src_ip = rte_be_to_cpu_32(iph->src_addr);
+			lookup = rte_lpm_lookup(*lpm4, src_ip, &permitted_src);
+		}
+		else {
+			struct rte_ipv6_hdr *ipv6h = payload + sizeof(struct rte_ether_hdr);
+			uint8_t *src_ip = ipv6h->src_addr;
+			lookup = rte_lpm6_lookup(*lpm6, src_ip, &permitted_src);
+		}
+		if(!lookup)
+		{
+			if(permitted_src){
+				printf("Source is permitted!\n");
+			}
+			else {
+				printf("Source is not permitted!\n");
+			}
+		}
+		else {
+			printf("No rule for source - applying implicit DENY rule!\n");
+		}
 	}
 }

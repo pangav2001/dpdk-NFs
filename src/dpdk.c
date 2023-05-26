@@ -12,6 +12,9 @@
 
 struct rte_mempool *pktmbuf_pool;
 
+struct rte_lpm *ipv4_rules_trie;
+struct rte_lpm6 *ipv6_rules_trie;
+
 void dpdk_init(int *argc, char ***argv)
 {
 	int ret, nb_ports, i;
@@ -115,6 +118,43 @@ void dpdk_init(int *argc, char ***argv)
 		       (link.link_duplex == RTE_ETH_LINK_FULL_DUPLEX) ?
 			       ("full-duplex") :
 			       ("half-duplex\n"));
+	
+	struct rte_lpm_config lpm_config;
+	lpm_config.max_rules = 1024;
+	lpm_config.number_tbl8s = 256;
+	lpm_config.flags = 0;
+	char name4[] = "lpm4_trie";
+	ipv4_rules_trie = rte_lpm_create(name4, rte_socket_id(), &lpm_config);
+	if (ipv4_rules_trie == NULL) {
+		printf("Cannot create LPM4 table\n");
+	}
+	else {
+		printf("Successfully created LPM4 table!\n");
+	}
+	struct rte_lpm6_config lpm6_config;
+	lpm6_config.max_rules = 1024;
+	lpm6_config.number_tbl8s = 256;
+	lpm6_config.flags = 0;
+	char name6[] = "lpm6_trie";
+	ipv6_rules_trie = rte_lpm6_create(name6, rte_socket_id(), &lpm6_config);
+	if (ipv6_rules_trie == NULL) {
+		printf("Cannot create LPM6 table\n");
+	}
+	else {
+		printf("Successfully created LPM6 table!\n");
+	}
+	struct in_addr buf;
+	char addr[INET_ADDRSTRLEN] = "10.1.0.1";
+	inet_pton(AF_INET, addr, &buf);
+	uint32_t ip = ntohl(buf.s_addr);
+	printf("IP is %u\n", ip);
+	uint32_t next_hop = 0;
+	ret = rte_lpm_add(ipv4_rules_trie, ip, 32, next_hop);
+	if (ret < 0)
+		printf("Failed to add rule to ipv4_rules_trie table\n");
+	else{
+		printf("Added entry to ipv4_rules_trie table!\n");
+	}
 }
 
 void dpdk_terminate(void)
@@ -137,7 +177,7 @@ void dpdk_poll(void)
 
   printf("I received packet\n");
   for (int i=0;i<ret;i++)
-    eth_in(rx_pkts[i]);
+    eth_in(rx_pkts[i], &ipv4_rules_trie, &ipv6_rules_trie);
 
   /* FIXME: Start your logic from here */
 }
